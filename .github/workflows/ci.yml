@@ -22,6 +22,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Resolve GIT_VERSION
+        id: ver
+        run: |
+          v=$(git describe --long --abbrev=7 2>/dev/null || true)
+          if [ -z "$v" ]; then
+            v="v0.0.0-0-g$(git rev-parse --short=7 HEAD)"
+          fi
+          echo "GIT_VERSION=$v" >> "$GITHUB_ENV"
+          echo "resolved GIT_VERSION=$v"
+
       - name: Build ${{ matrix.distro }} package
         run: make ${{ matrix.distro }}
 
