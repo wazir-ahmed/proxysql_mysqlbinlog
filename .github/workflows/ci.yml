@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+jobs:
+  package:
+    name: package (${{ matrix.distro }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        distro:
+          - ubuntu24
+          - centos10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve GIT_VERSION
+        id: ver
+        run: |
+          v=$(git describe --long --abbrev=7 2>/dev/null || true)
+          if [ -z "$v" ]; then
+            v="v0.0.0-0-g$(git rev-parse --short=7 HEAD)"
+          fi
+          echo "GIT_VERSION=$v" >> "$GITHUB_ENV"
+          echo "resolved GIT_VERSION=$v"
+
+      - name: Build ${{ matrix.distro }} package
+        run: make ${{ matrix.distro }}
+
+      - name: List built artifacts
+        run: ls -l binaries/
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.distro }}
+          path: |
+            binaries/*.deb
+            binaries/*.rpm
+          if-no-files-found: error
