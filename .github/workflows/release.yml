@@ -140,7 +140,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=test-infra
 
       - name: Run image tests (all distros, both flavors)
-        run: bash test/test-images.sh
+        run: bash test/infra/docker-image-test.sh
 
       - name: Upload test logs
         if: always()

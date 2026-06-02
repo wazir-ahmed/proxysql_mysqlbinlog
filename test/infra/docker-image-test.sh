@@ -19,8 +19,8 @@
 set -u
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-REPO=$(cd "$HERE/.." && pwd)
-INFRA_DIR="$REPO/test/infra"
+REPO=$(cd "$HERE/../.." && pwd)
+INFRA_DIR="$HERE"
 
 IMAGE_PREFIX=${IMAGE_PREFIX:-proxysql/proxysql-mysqlbinlog}
 DISTROS=${DISTROS:-"centos9 centos10 debian12 debian13 ubuntu22 ubuntu24"}
