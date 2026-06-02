@@ -56,3 +56,42 @@ jobs:
             exit 1
           fi
           gh release upload "${{ github.event.release.tag_name }}" "${assets[@]}" --clobber
+
+  container:
+    name: container (${{ matrix.distro }})
+    runs-on: ubuntu-latest
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        distro:
+          - centos9
+          - centos10
+          - debian12
+          - debian13
+          - ubuntu22
+          - ubuntu24
+    permissions:
+      packages: write
+    steps:
+      - name: Check out source at release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+
+      - name: Download package
+        uses: actions/download-artifact@v4
+        with:
+          name: package-${{ matrix.distro }}
+          path: binaries/
+
+      - name: Log into GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        run: make -C docker/images mysqlbinlog-${{ matrix.distro }} PUSH=1 IMAGE_PREFIX=ghcr.io/${{ github.repository_owner }}/proxysql-mysqlbinlog
