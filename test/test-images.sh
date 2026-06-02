@@ -3,15 +3,15 @@
 #
 # For every distro the script stands up a FRESH MySQL (so no GTID state
 # leaks between distros), runs the product image as an external reader in
-# two flavors, and points the test binaries at it:
+# two groups, and points the test binaries at it:
 #
-#   batching flavor (-b 1 -t 300) -> the batched tests
-#   normal   flavor (-b 0 -t 0)   -> the remaining tests
+#   batching group (-b 1 -t 300) -> the batched tests
+#   normal   group (-b 0 -t 0)   -> the remaining tests
 #
 # Inputs (env, with defaults):
 #   IMAGE_PREFIX   image repo to test          (proxysql/proxysql-mysqlbinlog)
 #   DISTROS        space-separated distro tags  (all six)
-#   MYSQL_VERSION  dbdeployer version token     (84); the port is derived
+#   MYSQL_VERSION  dbdeployer version token     (84); MYSQL_PORT is derived
 #   RUNNER_IMG     image carrying the libs to run the *-t binaries
 #
 # Exit status is non-zero if any test failed.
@@ -26,6 +26,11 @@ IMAGE_PREFIX=${IMAGE_PREFIX:-proxysql/proxysql-mysqlbinlog}
 DISTROS=${DISTROS:-"centos9 centos10 debian12 debian13 ubuntu22 ubuntu24"}
 MYSQL_VERSION=${MYSQL_VERSION:-84}
 RUNNER_IMG=${RUNNER_IMG:-proxysql/proxysql-mysqlbinlog:build-ubuntu24}
+# Infra image (built by test/infra/docker-compose.yml); also provides the
+# mysql client used below.
+INFRA_IMG=${INFRA_IMG:-proxysql-binlog-reader-infra:latest}
+
+INFRA_CONTAINER=binlog-reader-infra
 
 # Version -> MySQL port table (mirrors test/tap/run.sh).
 port_for() {
@@ -49,16 +54,17 @@ rc=0
 
 # Run one *-t binary in connect mode against the reader at IP $1.
 run_test() { # $1=reader_ip  $2=test  $3=label
-  echo "::group::[$3] $2"
+  local reader_ip=$1 test=$2 label=$3
+  echo "::group::[$label] $test"
   if docker run --rm --network "$NET" \
        -v "$REPO":/opt/proxysql_mysqlbinlog -w /opt/proxysql_mysqlbinlog \
        -e MYSQL_HOST=mysql -e MYSQL_PORT="$MYSQL_PORT" -e MYSQL_USER=root \
        -e MYSQL_PASSWORD=root -e MYSQL_VERSION="$MYSQL_VERSION" \
-       -e BINLOG_READER_BIN= -e BINLOG_READER_HOST="$1" -e BINLOG_READER_PORT=6020 \
-       "$RUNNER_IMG" ./test/tap/tests/"$2"; then
-    echo "RESULT $3/$2: PASS"
+       -e BINLOG_READER_BIN= -e BINLOG_READER_HOST="$reader_ip" -e BINLOG_READER_PORT=6020 \
+       "$RUNNER_IMG" ./test/tap/tests/"$test"; then
+    echo "RESULT $label/$test: PASS"
   else
-    echo "RESULT $3/$2: FAIL"; rc=1
+    echo "RESULT $label/$test: FAIL"; rc=1
   fi
   echo "::endgroup::"
 }
@@ -66,11 +72,13 @@ run_test() { # $1=reader_ip  $2=test  $3=label
 # Start the product image as a reader; echo its container IP on the infra net.
 # The client connects by IPv4 only (inet_pton, no DNS), hence the IP.
 start_reader() { # $1=image  $2=batching  $3=freq_ms
+  local image=$1 batching=$2 freq_ms=$3
   docker rm -f reader >/dev/null 2>&1 || true
   docker run -d --name reader --network "$NET" \
     -e MYSQL_HOST=mysql -e MYSQL_PORT="$MYSQL_PORT" -e MYSQL_USER=root \
-    -e MYSQL_PASSWORD=root -e BATCHING="$2" -e UPDATE_FREQ_MS="$3" -e LISTEN_PORT=6020 \
-    "$1" >/dev/null
+    -e MYSQL_PASSWORD=root -e BATCHING="$batching" -e UPDATE_FREQ_MS="$freq_ms" -e LISTEN_PORT=6020 \
+    "$image" >/dev/null
+  # give the reader time to connect and open its listen port
   sleep 4
   # Surface why the reader died (e.g. auth failures) — to stderr so it does
   # not pollute the IP captured by the caller.
@@ -81,17 +89,27 @@ start_reader() { # $1=image  $2=batching  $3=freq_ms
   docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' reader
 }
 
+# Run one reader group: start the reader, run its tests, then drop it.
+run_group() { # $1=image  $2=label  $3=batching  $4=freq_ms  $5=tests
+  local image=$1 label=$2 batching=$3 freq_ms=$4 tests=$5
+  local ip
+  ip=$(start_reader "$image" "$batching" "$freq_ms")
+  for t in $tests; do run_test "$ip" "$t" "$label"; done
+  docker rm -f reader >/dev/null 2>&1 || true
+}
+
 # Recreate a clean MySQL and set NET to its docker network.
 fresh_infra() {
   ( cd "$INFRA_DIR" && docker compose down -v >/dev/null 2>&1 || true )
   ( cd "$INFRA_DIR" && MYSQL_VERSIONS="$MYSQL_VERSION" docker compose up -d mysql )
+  # wait up to ~5 min (60 x 5s) for the infra healthcheck to report healthy
   for _ in $(seq 1 60); do
-    [ "$(docker inspect -f '{{.State.Health.Status}}' binlog-reader-infra 2>/dev/null)" = healthy ] && break
+    [ "$(docker inspect -f '{{.State.Health.Status}}' "$INFRA_CONTAINER" 2>/dev/null)" = healthy ] && break
     sleep 5
   done
   # let MySQL settle after it reports healthy
-  sleep 10
-  NET=$(docker inspect binlog-reader-infra \
+  sleep 5
+  NET=$(docker inspect "$INFRA_CONTAINER" \
         --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}')
 }
 
@@ -100,14 +118,16 @@ for distro in $DISTROS; do
   img="${IMAGE_PREFIX}:${distro}"
   fresh_infra
 
-  # Batching flavor first (cleanest GTID state), then the normal flavor.
-  ip=$(start_reader "$img" 1 300)
-  for t in $BATCH_TESTS; do run_test "$ip" "$t" "$distro-batching"; done
-  docker rm -f reader >/dev/null 2>&1 || true
+  # Warm the caching_sha2 cache for root@'%' with a TLS client first: the
+  # reader connects with SSL disabled, so it can only pass the warm fast-auth
+  # path, never the cold handshake.
+  docker run --rm --network "$NET" -e MYSQL_PORT="$MYSQL_PORT" \
+    --entrypoint bash "$INFRA_IMG" \
+    -c 'cli=$(ls /root/opt/mysql/8.4*/bin/mysql); "$cli" -h mysql -P "$MYSQL_PORT" -uroot -proot -e "SELECT 1"'
 
-  ip=$(start_reader "$img" 0 0)
-  for t in $NORMAL_TESTS; do run_test "$ip" "$t" "$distro-normal"; done
-  docker rm -f reader >/dev/null 2>&1 || true
+  # Batching group first (cleanest GTID state), then the normal group.
+  run_group "$img" "$distro-batching" 1 300 "$BATCH_TESTS"
+  run_group "$img" "$distro-normal"   0 0   "$NORMAL_TESTS"
 done
 
 ( cd "$INFRA_DIR" && docker compose down -v >/dev/null 2>&1 || true )
