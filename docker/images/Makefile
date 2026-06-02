@@ -95,6 +95,9 @@ mysqlbinlog-*:
 	cp ../../binaries/proxysql-mysqlbinlog_*$(DIST)* ./$@/ 2>/dev/null; \
 	cp ../../binaries/proxysql-mysqlbinlog-*$(DIST)* ./$@/ 2>/dev/null; \
 	ls -1 ./$@/proxysql-mysqlbinlog* | head -1 | xargs -r true || { echo "ERROR: no package found for $@ in ../../binaries/"; ls ../../binaries/; false; }
+	# pre-pull base image to avoid transient Docker Hub timeouts during build
+	BASE_IMG=$$(grep -Po '(?<=^FROM ).*' ./$@/Dockerfile | head -1); \
+	docker pull "$$BASE_IMG"
 ifndef MULTIARCH
 	# build for local only
 	@echo "building native $@ for 'native' using package '$$(cd ./$@/; ls -1 proxysql-mysqlbinlog*)'"
