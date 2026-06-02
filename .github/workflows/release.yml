@@ -138,6 +138,9 @@ jobs:
             -w /opt/proxysql_mysqlbinlog/test/tap \
             "$RUNNER_IMG" make
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build infra image
         uses: docker/build-push-action@v6
         with:
