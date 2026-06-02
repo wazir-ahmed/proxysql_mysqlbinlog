@@ -30,11 +30,8 @@ endif
 
 IMAGE_PREFIX ?= proxysql/proxysql-mysqlbinlog
 
-GIT_VERSION := $(shell git describe --long --abbrev=7)
-VERS ?= $(shell git describe --long --abbrev=7 | cut -d- -f1)
-ifeq ($(wildcard ../../binaries/proxysql-mysqlbinlog-${VERS}-*),)
-    $(error VERS=${VERS} ERROR: packages are not built)
-endif
+GIT_VERSION := $(shell git describe --tags --long --abbrev=7 2>/dev/null)
+VERS ?= $(shell echo $(GIT_VERSION) | grep -Po '(?<=^v|^)[\d\.]+')
 
 
 .PHONY: default
@@ -95,7 +92,9 @@ mysqlbinlog-*: TAGDN=$(if $(findstring ${DIST},$(LTSTDST)),-t $(IMAGE_PREFIX):${
 mysqlbinlog-*: TAGVDN=$(if $(findstring ${DIST},$(LTSTDST)),-t $(IMAGE_PREFIX):${VERS}-${DISTN},)
 mysqlbinlog-*:
 	rm -f ./$@/proxysql-mysqlbinlog*
-	cp ../../binaries/proxysql-mysqlbinlog*${VERS}*$(DIST)* ./$@/
+	cp ../../binaries/proxysql-mysqlbinlog_*$(DIST)* ./$@/ 2>/dev/null; \
+	cp ../../binaries/proxysql-mysqlbinlog-*$(DIST)* ./$@/ 2>/dev/null; \
+	ls -1 ./$@/proxysql-mysqlbinlog* | head -1 | xargs -r true || { echo "ERROR: no package found for $@ in ../../binaries/"; ls ../../binaries/; false; }
 ifndef MULTIARCH
 	# build for local only
 	@echo "building native $@ for 'native' using package '$$(cd ./$@/; ls -1 proxysql-mysqlbinlog*)'"
