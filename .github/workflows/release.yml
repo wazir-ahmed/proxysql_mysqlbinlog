@@ -139,8 +139,29 @@ jobs:
           cache-from: type=gha,scope=test-infra
           cache-to: type=gha,mode=max,scope=test-infra
 
-      - name: Run image tests (all distros, both flavors)
-        run: bash test/infra/docker-image-test.sh
+      - name: Test centos9
+        if: ${{ !cancelled() }}
+        run: DISTROS=centos9 bash test/infra/docker-image-test.sh
+
+      - name: Test centos10
+        if: ${{ !cancelled() }}
+        run: DISTROS=centos10 bash test/infra/docker-image-test.sh
+
+      - name: Test debian12
+        if: ${{ !cancelled() }}
+        run: DISTROS=debian12 bash test/infra/docker-image-test.sh
+
+      - name: Test debian13
+        if: ${{ !cancelled() }}
+        run: DISTROS=debian13 bash test/infra/docker-image-test.sh
+
+      - name: Test ubuntu22
+        if: ${{ !cancelled() }}
+        run: DISTROS=ubuntu22 bash test/infra/docker-image-test.sh
+
+      - name: Test ubuntu24
+        if: ${{ !cancelled() }}
+        run: DISTROS=ubuntu24 bash test/infra/docker-image-test.sh
 
       - name: Upload test logs
         if: always()
