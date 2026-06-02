@@ -59,7 +59,7 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # 2. Build container images locally and SAVE them as artifacts.
-  #    Nothing is pushed here — unverified images never reach GHCR.
+  #    Nothing is pushed here; images reach GHCR only after they pass the tests.
   # ---------------------------------------------------------------------------
   container-build:
     name: container-build (${{ matrix.distro }})
@@ -99,9 +99,7 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # 3. Test every built image with the TAP suite in connect mode, before
-  #    anything is published. Each distro gets a FRESH MySQL so no GTID state
-  #    leaks between distros.
+  # 3. Test every built image with the TAP suite.
   # ---------------------------------------------------------------------------
   test-images:
     name: test-images
@@ -172,7 +170,7 @@ jobs:
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
-  # 4. Publish: push the verified images to GHCR. Only runs if tests passed.
+  # 4. Publish: push the verified images to GHCR.
   # ---------------------------------------------------------------------------
   publish:
     name: publish
