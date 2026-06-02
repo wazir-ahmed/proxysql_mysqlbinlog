@@ -28,6 +28,8 @@ override NOCACHE := --no-cache
 endif
 
 
+IMAGE_PREFIX ?= proxysql/proxysql-mysqlbinlog
+
 GIT_VERSION := $(shell git describe --long --abbrev=7)
 VERS ?= $(shell git describe --long --abbrev=7 | cut -d- -f1)
 ifeq ($(wildcard ../../binaries/proxysql-mysqlbinlog-${VERS}-*),)
@@ -41,7 +43,7 @@ default: mysqlbinlog
 
 .PHONY: cleanimg
 cleanimg:
-	docker images -a | grep 'proxysql/proxysql-mysqlbinlog' | grep -v 'build-' | awk '{print $$3}' | sort | uniq | xargs -r docker rmi -f
+	docker images -a | grep '$(IMAGE_PREFIX)' | grep -v 'build-' | awk '{print $$3}' | sort | uniq | xargs -r docker rmi -f
 
 .PHONY: cleanbuild
 cleanbuild:
@@ -85,12 +87,12 @@ PLTFRMS := linux/amd64
 .PHONY: mysqlbinlog-*
 mysqlbinlog-*: DIST=$(patsubst mysqlbinlog-%,%,$@)
 mysqlbinlog-*: DISTN=$(shell echo ${DIST} | grep -Po '[a-z]+')
-mysqlbinlog-*: TAGV=$(if $(findstring ${DIST},$(DFLTDST)),-t proxysql/proxysql-mysqlbinlog:${VERS},)
-mysqlbinlog-*: TAGL=$(if $(findstring ${DIST},$(DFLTDST)),-t proxysql/proxysql-mysqlbinlog:latest,)
-mysqlbinlog-*: TAGD=-t proxysql/proxysql-mysqlbinlog:${DIST}
-mysqlbinlog-*: TAGVD=-t proxysql/proxysql-mysqlbinlog:${VERS}-${DIST}
-mysqlbinlog-*: TAGDN=$(if $(findstring ${DIST},$(LTSTDST)),-t proxysql/proxysql-mysqlbinlog:${DISTN},)
-mysqlbinlog-*: TAGVDN=$(if $(findstring ${DIST},$(LTSTDST)),-t proxysql/proxysql-mysqlbinlog:${VERS}-${DISTN},)
+mysqlbinlog-*: TAGV=$(if $(findstring ${DIST},$(DFLTDST)),-t $(IMAGE_PREFIX):${VERS},)
+mysqlbinlog-*: TAGL=$(if $(findstring ${DIST},$(DFLTDST)),-t $(IMAGE_PREFIX):latest,)
+mysqlbinlog-*: TAGD=-t $(IMAGE_PREFIX):${DIST}
+mysqlbinlog-*: TAGVD=-t $(IMAGE_PREFIX):${VERS}-${DIST}
+mysqlbinlog-*: TAGDN=$(if $(findstring ${DIST},$(LTSTDST)),-t $(IMAGE_PREFIX):${DISTN},)
+mysqlbinlog-*: TAGVDN=$(if $(findstring ${DIST},$(LTSTDST)),-t $(IMAGE_PREFIX):${VERS}-${DISTN},)
 mysqlbinlog-*:
 	rm -f ./$@/proxysql-mysqlbinlog*
 	cp ../../binaries/proxysql-mysqlbinlog*${VERS}*$(DIST)* ./$@/
@@ -110,4 +112,4 @@ endif
 
 .PHONY: imglist
 imglist:
-	docker images | grep 'proxysql/proxysql-mysqlbinlog' | grep -v 'build-' || true
+	docker images | grep '$(IMAGE_PREFIX)' | grep -v 'build-' || true
